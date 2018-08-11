@@ -14,7 +14,7 @@
 
 @end
 
-static AudioUnit setupRemoteIOAudioUnit();
+static AudioUnit setupRemoteIOAudioUnit(void);
 
 const int kBufferSizeInSamples = 4096;
 
@@ -35,14 +35,18 @@ AudioBufferList *outputABL;
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    // TODO: ogle measurement mode latencies
-
     AVAudioSession *session = [AVAudioSession sharedInstance];
     
     NSError *error;
     
-    BOOL success = [session setCategory:AVAudioSessionCategoryPlayAndRecord error:&error];
+    // interesting - default to speaker raising output latency.
+    BOOL success = [session setCategory:AVAudioSessionCategoryPlayAndRecord withOptions:AVAudioSessionCategoryOptionDefaultToSpeaker error:&error];
     assert(success);
+    
+    if (false) {
+        success = [session setMode:AVAudioSessionModeMeasurement error:&error];
+        assert(success);
+    }
     
     success = [session setActive:YES error:&error];
     assert(success);
@@ -51,11 +55,6 @@ AudioBufferList *outputABL;
         success = [session setPreferredSampleRate:48000 error:&error];
         assert(success);
     }
-    
-    // iPhone X has stereo input, I don't want to think about that.
-//    success = [session setPreferredInputNumberOfChannels:1 error:&error];
-//    assert(success);
-//    NSLog(@"input channels: %i", session.inputNumberOfChannels);
     
     double sampleRate = session.sampleRate;
     
@@ -89,7 +88,7 @@ AudioBufferList *outputABL;
         ping[i] = sin(2 * M_PI * (4*440) * i / sampleRate);
     }
     
-    outputLengthFrames = 5 * sampleRate;
+    outputLengthFrames = 1 * sampleRate;
     outputLengthFrames = (outputLengthFrames + kBufferSizeInSamples - 1)/kBufferSizeInSamples*kBufferSizeInSamples; // be divisible by buffer size
     leftOutput = malloc(sizeof(float) * outputLengthFrames);
     rightOutput = malloc(sizeof(float) * outputLengthFrames);
@@ -157,7 +156,6 @@ RenderCallback(
 {
 //    printf("output: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime);
     int availFrames = pingLengthFrames - pingPlaybackPosition;
-    
     int framesToCopy = MIN(availFrames, inNumberFrames);
 
     // assuming interleaved here
