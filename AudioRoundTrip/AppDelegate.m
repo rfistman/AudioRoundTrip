@@ -19,6 +19,9 @@ static AudioUnit setupRemoteIOAudioUnit(void);
 
 const int kBufferSizeInSamples = 4096;
 
+const int kMatchSize = 1024;    // assert something about kBufferSizeInSamples
+const int kRingBufferCapacity = 4*kMatchSize;
+
 AudioUnit audioUnit;
 AudioStreamBasicDescription inputASBD;
 double audioSessionSampleRate;// =
@@ -27,12 +30,50 @@ float *ping;
 int pingPlaybackPosition;
 int pingLengthFrames;
 
+Float64 inputBufferSampleTime;
+float *inputRingBuffer;
+int inputRingBufferReadPointer;
+int inputRingBufferWritePointer;
+
+int
+ringBufferAvailableFrames() {
+    return inputRingBufferWritePointer-inputRingBufferReadPointer;
+}
+
+float*
+ringBufferGetReadPointer() {
+    return &inputRingBuffer[inputRingBufferReadPointer];
+}
+
+void
+ringBufferAdvanceReadPointer(int nframes) {
+    inputRingBufferReadPointer += nframes;
+    inputBufferSampleTime += nframes;
+    assert(inputRingBufferReadPointer <= inputRingBufferWritePointer);
+}
+
+void
+ringBufferWrite(float* in, int nframes) {
+    if (inputRingBufferWritePointer + nframes > kRingBufferCapacity) {
+        // NSLog(@"write shifts ring buffer down");
+        int availFrames = ringBufferAvailableFrames();
+        memmove(&inputRingBuffer[0], &inputRingBuffer[inputRingBufferReadPointer], availFrames * sizeof(float));
+        inputRingBufferWritePointer -= inputRingBufferReadPointer;
+        inputRingBufferReadPointer = 0;
+    }
+    assert(inputRingBufferWritePointer + nframes <= kRingBufferCapacity);
+    memmove(&inputRingBuffer[inputRingBufferWritePointer], in, nframes*sizeof(float));
+    inputRingBufferWritePointer += nframes;
+}
+
+
 float *leftOutput;
 float *rightOutput;
 int outputWritePosition;
 int outputLengthFrames;
 AudioBufferList *outputABL;
 
+AVAudioPCMBuffer *inputMatchBuffer;
 
 @implementation AppDelegate
 
@@ -73,7 +114,7 @@ AudioBufferList *outputABL;
 
 }
 
-- (void)loadClick {
+- (AVAudioPCMBuffer *)loadClick {
     NSURL *url = [[NSBundle mainBundle] URLForResource:@"Click" withExtension:@"wav"];
     NSError *error;
     // defaults to de-interleaved floating point, which is fine. expecting mono.
@@ -85,12 +126,13 @@ AudioBufferList *outputABL;
     AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:file.processingFormat frameCapacity:(AVAudioFrameCount)length];
     BOOL success = [file readIntoBuffer:buffer error:&error];
     assert(success);
+    return buffer;
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     [self setupAudioSession];
     
-    [self loadClick];
+    inputMatchBuffer = [self loadClick];
     
     audioUnit = setupRemoteIOAudioUnit();
 
@@ -114,6 +156,8 @@ AudioBufferList *outputABL;
     for (int i = 0; i < pingLengthFrames; i++) {
         ping[i] = sin(2 * M_PI * (4*440) * i / sampleRate);
     }
+    
+    inputRingBuffer = malloc(kRingBufferCapacity*sizeof(float));
     
     outputLengthFrames = 1 * sampleRate;
     outputLengthFrames = (outputLengthFrames + kBufferSizeInSamples - 1)/kBufferSizeInSamples*kBufferSizeInSamples; // be divisible by buffer size
@@ -139,8 +183,8 @@ InputCallback(
     UInt32                      inNumberFrames,
     AudioBufferList*            ioData)
 {
-    uint64_t nowHostTime = mach_absolute_time();
-    printf("input hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, audioSessionSampleRate * (nowHostTime-inTimeStamp->mHostTime)*125/3/1e9);
+    // uint64_t nowHostTime = mach_absolute_time();
+    // printf("input hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, audioSessionSampleRate * (nowHostTime-inTimeStamp->mHostTime)*125/3/1e9);
     if (outputWritePosition + inNumberFrames > outputLengthFrames) {
         printf("finished!\n");
         OSStatus err = AudioOutputUnitStop(audioUnit);
@@ -168,6 +212,15 @@ InputCallback(
     OSStatus err = AudioUnitRender(audioUnit, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, outputABL);
     assert(noErr == err);   // maybe you're running this on the simulator
 
+    // Do all ring buffer stuff from here because I haven't done any synchronization
+    ringBufferWrite(outputABL->mBuffers[0].mData, inNumberFrames);
+    
+    
+    while (ringBufferAvailableFrames() >= kMatchSize) {
+        //printf("avail %i\n", ringBufferAvailableFrames());
+        ringBufferAdvanceReadPointer(kMatchSize);
+    }
+    
     outputWritePosition += inNumberFrames;
     
     return noErr;
@@ -182,9 +235,9 @@ RenderCallback(
    UInt32                      inNumberFrames,
    AudioBufferList*            ioData)
 {
-    uint64_t nowHostTime = mach_absolute_time();
+    // uint64_t nowHostTime = mach_absolute_time();
     // NB: assumption that timestamp hosttime > now hosttime
-    printf("output hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, -audioSessionSampleRate * (inTimeStamp->mHostTime-nowHostTime)*125/3/1e9);
+    // printf("output hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, -audioSessionSampleRate * (inTimeStamp->mHostTime-nowHostTime)*125/3/1e9);
     int availFrames = pingLengthFrames - pingPlaybackPosition;
     int framesToCopy = MIN(availFrames, inNumberFrames);
 
