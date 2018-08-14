@@ -36,7 +36,7 @@ AudioBufferList *outputABL;
 
 @implementation AppDelegate
 
-- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+- (void)setupAudioSession {
     AVAudioSession *session = [AVAudioSession sharedInstance];
     
     NSError *error;
@@ -52,15 +52,13 @@ AudioBufferList *outputABL;
     
     success = [session setActive:YES error:&error];
     assert(success);
-
+    
     if (false) {
         success = [session setPreferredSampleRate:48000 error:&error];
         assert(success);
     }
     
-    double sampleRate = session.sampleRate;
-    
-    success = [session setPreferredIOBufferDuration:kBufferSizeInSamples/sampleRate error:&error];
+    success = [session setPreferredIOBufferDuration:kBufferSizeInSamples/session.sampleRate error:&error];
     assert(success);
     
     NSLog(@"session sampleRate: %lf, preferred: %lf", session.sampleRate, session.preferredSampleRate);
@@ -73,6 +71,27 @@ AudioBufferList *outputABL;
     NSTimeInterval roundTripDuration = inputLatency + deviceLatency + bufferDur * 2;
     NSLog(@"round trip: %lfs, %lf, hosttime units: %lf, sr: %lf", roundTripDuration, roundTripDuration*session.sampleRate, roundTripDuration*1e9*3/125, session.sampleRate);
 
+}
+
+- (void)loadClick {
+    NSURL *url = [[NSBundle mainBundle] URLForResource:@"Click" withExtension:@"wav"];
+    NSError *error;
+    // defaults to de-interleaved floating point, which is fine. expecting mono.
+    AVAudioFile *file = [[AVAudioFile alloc] initForReading:url error:&error];
+    assert(file);
+    
+    AVAudioFramePosition length = file.length;
+    NSLog(@"Click length: %lli", length);
+    AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:file.processingFormat frameCapacity:(AVAudioFrameCount)length];
+    BOOL success = [file readIntoBuffer:buffer error:&error];
+    assert(success);
+}
+
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    [self setupAudioSession];
+    
+    [self loadClick];
+    
     audioUnit = setupRemoteIOAudioUnit();
 
     OSStatus err;
@@ -82,7 +101,11 @@ AudioBufferList *outputABL;
     err = AudioUnitGetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &inputASBD, &size);
     assert(noErr == err);
 
-    audioSessionSampleRate = session.sampleRate;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+
+    double sampleRate = session.sampleRate;
+
+    audioSessionSampleRate = sampleRate;
     
     // create ping
     pingLengthFrames = 0.04 * sampleRate;
