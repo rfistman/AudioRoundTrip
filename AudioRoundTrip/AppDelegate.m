@@ -9,6 +9,7 @@
 #import "AppDelegate.h"
 #import <AVFoundation/AVFoundation.h>
 #include <AudioUnit/AudioUnit.h>
+#include <mach/mach.h>
 
 @interface AppDelegate ()
 
@@ -20,6 +21,7 @@ const int kBufferSizeInSamples = 4096;
 
 AudioUnit audioUnit;
 AudioStreamBasicDescription inputASBD;
+double audioSessionSampleRate;// =
 
 float *ping;
 int pingPlaybackPosition;
@@ -69,7 +71,7 @@ AudioBufferList *outputABL;
     
     NSLog(@"latencies: %lf, if: %lf, bd: %lf (%lf samples)", deviceLatency, inputLatency, bufferDur, bufferDur * session.sampleRate);
     NSTimeInterval roundTripDuration = inputLatency + deviceLatency + bufferDur * 2;
-    NSLog(@"round trip: %lfs, %lf, sr: %lf", roundTripDuration, roundTripDuration*session.sampleRate, session.sampleRate);
+    NSLog(@"round trip: %lfs, %lf, hosttime units: %lf, sr: %lf", roundTripDuration, roundTripDuration*session.sampleRate, roundTripDuration*1e9*3/125, session.sampleRate);
 
     audioUnit = setupRemoteIOAudioUnit();
 
@@ -80,6 +82,8 @@ AudioBufferList *outputABL;
     err = AudioUnitGetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &inputASBD, &size);
     assert(noErr == err);
 
+    audioSessionSampleRate = session.sampleRate;
+    
     // create ping
     pingLengthFrames = 0.04 * sampleRate;
     ping = malloc(sizeof(float) * pingLengthFrames);
@@ -112,7 +116,8 @@ InputCallback(
     UInt32                      inNumberFrames,
     AudioBufferList*            ioData)
 {
-//    printf("input: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime);
+    uint64_t nowHostTime = mach_absolute_time();
+    printf("input hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, audioSessionSampleRate * (nowHostTime-inTimeStamp->mHostTime)*125/3/1e9);
     if (outputWritePosition + inNumberFrames > outputLengthFrames) {
         printf("finished!\n");
         OSStatus err = AudioOutputUnitStop(audioUnit);
@@ -154,7 +159,9 @@ RenderCallback(
    UInt32                      inNumberFrames,
    AudioBufferList*            ioData)
 {
-//    printf("output: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime);
+    uint64_t nowHostTime = mach_absolute_time();
+    // NB: assumption that timestamp hosttime > now hosttime
+    printf("output hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, -audioSessionSampleRate * (inTimeStamp->mHostTime-nowHostTime)*125/3/1e9);
     int availFrames = pingLengthFrames - pingPlaybackPosition;
     int framesToCopy = MIN(availFrames, inNumberFrames);
 
