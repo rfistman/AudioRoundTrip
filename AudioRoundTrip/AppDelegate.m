@@ -10,6 +10,7 @@
 #import <AVFoundation/AVFoundation.h>
 #include <AudioUnit/AudioUnit.h>
 #include <mach/mach.h>
+#import "AccelerateCorrelate.h"
 
 @interface AppDelegate ()
 
@@ -20,7 +21,7 @@ static AudioUnit setupRemoteIOAudioUnit(void);
 const int kBufferSizeInSamples = 4096;
 
 const int kMatchSize = 1024;    // assert something about kBufferSizeInSamples
-const int kRingBufferCapacity = 4*kMatchSize;
+const int kRingBufferCapacity = kBufferSizeInSamples + kMatchSize - 1;
 
 AudioUnit audioUnit;
 AudioStreamBasicDescription inputASBD;
@@ -30,7 +31,7 @@ float *ping;
 int pingPlaybackPosition;
 int pingLengthFrames;
 
-Float64 inputBufferSampleTime;
+uint64_t inputBufferSampleTime;
 float *inputRingBuffer;
 int inputRingBufferReadPointer;
 int inputRingBufferWritePointer;
@@ -74,6 +75,11 @@ int outputLengthFrames;
 AudioBufferList *outputABL;
 
 AVAudioPCMBuffer *inputMatchBuffer;
+float *inputMatchBufferSamples; // kMatchSize worth
+//double inputLength;
+
+double maxCorrelation;
+uint64_t maxCorrelationSampleTime;
 
 @implementation AppDelegate
 
@@ -130,9 +136,25 @@ AVAudioPCMBuffer *inputMatchBuffer;
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    ExampleCorrelate();
+    
     [self setupAudioSession];
     
     inputMatchBuffer = [self loadClick];
+    inputMatchBufferSamples = inputMatchBuffer.floatChannelData[0];
+    double lenSquared = 0;
+    for (int i = 0; i < kMatchSize; i++) {
+        double x = inputMatchBufferSamples[i];
+        lenSquared += x*x;
+    }
+
+    // normalize the part we're using
+    double inputLength = sqrt(lenSquared);
+    for (int i = 0; i < kMatchSize; i++) {
+        inputMatchBufferSamples[i] /= inputLength;
+    }
+
+    NSLog(@"input len squared: %lf", inputLength);
     
     audioUnit = setupRemoteIOAudioUnit();
 
@@ -185,7 +207,7 @@ InputCallback(
 {
     // uint64_t nowHostTime = mach_absolute_time();
     // printf("input hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, audioSessionSampleRate * (nowHostTime-inTimeStamp->mHostTime)*125/3/1e9);
-    if (outputWritePosition + inNumberFrames > outputLengthFrames) {
+    if (false && outputWritePosition + inNumberFrames > outputLengthFrames) {
         printf("finished!\n");
         OSStatus err = AudioOutputUnitStop(audioUnit);
         assert(noErr == err);
@@ -193,6 +215,7 @@ InputCallback(
         return noErr;
     }
     
+#if 0
     AudioBuffer        leftBuffer = {
         .mNumberChannels = 1,
         .mDataByteSize = (outputLengthFrames-outputWritePosition)*sizeof(leftOutput[0]),
@@ -204,6 +227,11 @@ InputCallback(
         .mDataByteSize = (outputLengthFrames-outputWritePosition)*sizeof(rightOutput[0]),
         .mData = &rightOutput[outputWritePosition],
     };
+#else
+    // now writing to ring buffer, just give me what you've got
+    AudioBuffer leftBuffer = {0};
+    AudioBuffer rightBuffer = {0};
+#endif
 
     outputABL->mNumberBuffers = 2;
     outputABL->mBuffers[0] = leftBuffer;
@@ -214,11 +242,29 @@ InputCallback(
 
     // Do all ring buffer stuff from here because I haven't done any synchronization
     ringBufferWrite(outputABL->mBuffers[0].mData, inNumberFrames);
-    
-    
+
     while (ringBufferAvailableFrames() >= kMatchSize) {
+        float *normalizedA = inputMatchBufferSamples;
+        float *b = ringBufferGetReadPointer();
+        double  s = 0;
+        double bSum = 0;
+        
+        for (int i = 0; i < kMatchSize; i++) {
+            double x = *b++;
+            bSum += x*x;
+            s += *normalizedA++ * x;
+        }
+        s = fabs(s)/sqrt(bSum);
+    //    s = fabs(s)/(inputLength*sqrt(bSum));
+        
+        if (s > 0.5) {
+            maxCorrelation = s;
+            maxCorrelationSampleTime = inputBufferSampleTime;
+            NSLog(@"[%lli]: %lf\n", maxCorrelationSampleTime, s);
+        }
         //printf("avail %i\n", ringBufferAvailableFrames());
-        ringBufferAdvanceReadPointer(kMatchSize);
+        //        ringBufferAdvanceReadPointer(kMatchSize);
+        ringBufferAdvanceReadPointer(1);    // ouch!
     }
     
     outputWritePosition += inNumberFrames;
@@ -235,6 +281,9 @@ RenderCallback(
    UInt32                      inNumberFrames,
    AudioBufferList*            ioData)
 {
+    *ioActionFlags = kAudioUnitRenderAction_OutputIsSilence;
+    return noErr;
+
     // uint64_t nowHostTime = mach_absolute_time();
     // NB: assumption that timestamp hosttime > now hosttime
     // printf("output hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, -audioSessionSampleRate * (inTimeStamp->mHostTime-nowHostTime)*125/3/1e9);
