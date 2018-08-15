@@ -11,6 +11,7 @@
 #include <AudioUnit/AudioUnit.h>
 #include <mach/mach.h>
 #import "AccelerateCorrelate.h"
+#import "LameRingBuffer.h"
 
 @interface AppDelegate ()
 
@@ -31,42 +32,6 @@ float *ping;
 int pingPlaybackPosition;
 int pingLengthFrames;
 
-uint64_t inputBufferSampleTime;
-float *inputRingBuffer;
-int inputRingBufferReadPointer;
-int inputRingBufferWritePointer;
-
-int
-ringBufferAvailableFrames() {
-    return inputRingBufferWritePointer-inputRingBufferReadPointer;
-}
-
-float*
-ringBufferGetReadPointer() {
-    return &inputRingBuffer[inputRingBufferReadPointer];
-}
-
-void
-ringBufferAdvanceReadPointer(int nframes) {
-    inputRingBufferReadPointer += nframes;
-    inputBufferSampleTime += nframes;
-    assert(inputRingBufferReadPointer <= inputRingBufferWritePointer);
-}
-
-void
-ringBufferWrite(float* in, int nframes) {
-    if (inputRingBufferWritePointer + nframes > kRingBufferCapacity) {
-        // NSLog(@"write shifts ring buffer down");
-        int availFrames = ringBufferAvailableFrames();
-        memmove(&inputRingBuffer[0], &inputRingBuffer[inputRingBufferReadPointer], availFrames * sizeof(float));
-        inputRingBufferWritePointer -= inputRingBufferReadPointer;
-        inputRingBufferReadPointer = 0;
-    }
-    assert(inputRingBufferWritePointer + nframes <= kRingBufferCapacity);
-    memmove(&inputRingBuffer[inputRingBufferWritePointer], in, nframes*sizeof(float));
-    inputRingBufferWritePointer += nframes;
-}
-
 
 float *leftOutput;
 float *rightOutput;
@@ -75,11 +40,11 @@ int outputLengthFrames;
 AudioBufferList *outputABL;
 
 AVAudioPCMBuffer *inputMatchBuffer;
-float *inputMatchBufferSamples; // kMatchSize worth
-//double inputLength;
 
 double maxCorrelation;
 uint64_t maxCorrelationSampleTime;
+
+AccCorrelate correlator;
 
 @implementation AppDelegate
 
@@ -141,20 +106,18 @@ uint64_t maxCorrelationSampleTime;
     [self setupAudioSession];
     
     inputMatchBuffer = [self loadClick];
-    inputMatchBufferSamples = inputMatchBuffer.floatChannelData[0];
-    double lenSquared = 0;
-    for (int i = 0; i < kMatchSize; i++) {
-        double x = inputMatchBufferSamples[i];
-        lenSquared += x*x;
-    }
+    float *inputMatchBufferSamples = inputMatchBuffer.floatChannelData[0];
+  
+    int fileLength = inputMatchBuffer.frameLength;
+    int lengthNPOT = 1 << (int)ceil(log2(2 * fileLength));  // NB: twice length of input
+    float *matchFFT = calloc(1, lengthNPOT * sizeof(float));
+    assert(matchFFT);
+    correlator = NewAccCorr(lengthNPOT);
+    // normalize the vector first
+    float l2Length = cblas_snrm2(fileLength, inputMatchBufferSamples, 1);
+    cblas_sscal(fileLength, 1.0/l2Length, inputMatchBufferSamples, 1);
 
-    // normalize the part we're using
-    double inputLength = sqrt(lenSquared);
-    for (int i = 0; i < kMatchSize; i++) {
-        inputMatchBufferSamples[i] /= inputLength;
-    }
-
-    NSLog(@"input len squared: %lf", inputLength);
+    ForwardFFT(&correlator, inputMatchBuffer.floatChannelData[0], matchFFT);
     
     audioUnit = setupRemoteIOAudioUnit();
 
@@ -179,7 +142,7 @@ uint64_t maxCorrelationSampleTime;
         ping[i] = sin(2 * M_PI * (4*440) * i / sampleRate);
     }
     
-    inputRingBuffer = malloc(kRingBufferCapacity*sizeof(float));
+    initLameRingBuffer(kRingBufferCapacity);
     
     outputLengthFrames = 1 * sampleRate;
     outputLengthFrames = (outputLengthFrames + kBufferSizeInSamples - 1)/kBufferSizeInSamples*kBufferSizeInSamples; // be divisible by buffer size
@@ -244,6 +207,7 @@ InputCallback(
     ringBufferWrite(outputABL->mBuffers[0].mData, inNumberFrames);
 
     while (ringBufferAvailableFrames() >= kMatchSize) {
+        /*
         float *normalizedA = inputMatchBufferSamples;
         float *b = ringBufferGetReadPointer();
         double  s = 0;
@@ -259,11 +223,12 @@ InputCallback(
         
         if (s > 0.5) {
             maxCorrelation = s;
-            maxCorrelationSampleTime = inputBufferSampleTime;
+            maxCorrelationSampleTime = ringBufferStartSampleTime();
             NSLog(@"[%lli]: %lf\n", maxCorrelationSampleTime, s);
         }
         //printf("avail %i\n", ringBufferAvailableFrames());
         //        ringBufferAdvanceReadPointer(kMatchSize);
+         */
         ringBufferAdvanceReadPointer(1);    // ouch!
     }
     

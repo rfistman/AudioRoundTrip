@@ -11,14 +11,6 @@
 
 #include "AccelerateCorrelate.h"
 
-#include <Accelerate/Accelerate.h>
-
-typedef struct {
-    FFTSetup    setup;
-    vDSP_Length log2N;
-    vDSP_Length N;
-} AccCorrelate;
-
 AccCorrelate
 NewAccCorr(int N) {
     int log2N = ceil(log2(N));
@@ -36,6 +28,7 @@ AccCorrDelete(AccCorrelate *f) {
     vDSP_destroy_fftsetup(f->setup);
 }
 
+
 static void
 FFT(AccCorrelate *f, float *s, DSPSplitComplex *io) {
     // pretend real signal is interleaved complex and convert to split for zrip
@@ -51,7 +44,13 @@ IFFT(AccCorrelate *f, DSPSplitComplex *io, float *res) {
     vDSP_fft_zrip(f->setup, io, 1, f->log2N, kFFTDirection_Inverse);
     vDSP_ztoc(io, 1, (DSPComplex *)res, 2, f->N/2); // convert back
 }
-    
+
+void
+ForwardFFT(AccCorrelate *f, float *src, float *dst) {
+    DSPSplitComplex io = { .realp = dst, .imagp = dst + f->N/2 };
+    FFT(f, src, &io);
+}
+
 // overwrite a, I guess. f for N
 static void
 Corrip(AccCorrelate *f, float* a, DSPSplitComplex *asplit, float* b, float* res) {
@@ -67,17 +66,18 @@ Corrip(AccCorrelate *f, float* a, DSPSplitComplex *asplit, float* b, float* res)
     float *b_y = &b[halfN+1];
     DSPSplitComplex A = { .realp = a_x, .imagp = a_y };
     DSPSplitComplex B = { .realp = b_x, .imagp = b_y };
-    vDSP_zvcmul(&A, 1, &B, 1, &A, 1, halfN-1);
+    vDSP_zvcmul(&A, 1, &B, 1, &A, 1, halfN-1);  // A <- A~*B
     
     IFFT(f, asplit, res);
     // TODO? just figure out offset from even/odd values?
     vDSP_ztoc(asplit, 1, (DSPComplex *)res, 2, halfN);
 }
 
-void
-AccCorrelateFN(float *bp, float *ap, float *res, int N) {
+static void
+AccCorrelateFN(float *ap, float *bp, float *res, int N) {
     // Reusable. TODO: reuse
     AccCorrelate f = NewAccCorr(N);
+
     float aw[N];
     DSPSplitComplex aws = { .realp = aw, .imagp = aw + N/2 };
     FFT(&f, ap, &aws);
@@ -87,7 +87,7 @@ AccCorrelateFN(float *bp, float *ap, float *res, int N) {
     FFT(&f, bp, &bws);
 
     // b*a(n) = a*b(-n) aka offset of a in b
-    Corrip(&f, bw, &bws, aw, res);   // NB: a, b switcharoo
+    Corrip(&f, aw, &aws, bw, res);
     AccCorrDelete(&f);
 }
 
@@ -127,7 +127,11 @@ ExampleCorrelate() {
     
     match = true;
     for (int i = 0; i < N; i++) {
-        fftRes[i] /= (4*N); // whut?
+        // https://www.mikeash.com/pyblog/friday-qa-2012-10-26-fourier-transforms-and-ffts.html
+        // TODO: use cblas_sscal
+        // real forward scales by 2 and there are 2, real inverse scales by N, so 4N.
+        // https://developer.apple.com/library/archive/documentation/Performance/Conceptual/vDSP_Programming_Guide/UsingFourierTransforms/UsingFourierTransforms.html
+        fftRes[i] /= (4*N); // Accelerate real scaling factors
         printf("%.8f, ", fftRes[i]);
         if (round(fftRes[i]) != expected[i]) match = false;
     }

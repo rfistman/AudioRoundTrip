@@ -11,6 +11,20 @@
 
 #include <stdio.h>
 
-void ExampleCorrelate();
+
+#include <Accelerate/Accelerate.h>
+
+typedef struct {
+    FFTSetup    setup;
+    vDSP_Length log2N;
+    vDSP_Length N;
+} AccCorrelate;
+
+AccCorrelate NewAccCorr(int N);
+void AccCorrDelete(AccCorrelate *f);
+
+void ForwardFFT(AccCorrelate *f, float *src, float *dst);
+
+void ExampleCorrelate(void);
 
 #endif /* AccelerateCorrelate_h */

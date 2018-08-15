@@ -15,6 +15,7 @@
 		6C63A972211DCEE700098C7A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 6C63A971211DCEE700098C7A /* main.m */; };
 		6C63A9792122C9A500098C7A /* Click.wav in Resources */ = {isa = PBXBuildFile; fileRef = 6C63A9782122C9A500098C7A /* Click.wav */; };
 		6C63A97C2123677200098C7A /* AccelerateCorrelate.c in Sources */ = {isa = PBXBuildFile; fileRef = 6C63A97B2123677200098C7A /* AccelerateCorrelate.c */; };
+		6C63A9842124592B00098C7A /* LameRingBuffer.c in Sources */ = {isa = PBXBuildFile; fileRef = 6C63A9832124592B00098C7A /* LameRingBuffer.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,8 @@
 		6C63A9782122C9A500098C7A /* Click.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Click.wav; sourceTree = "<group>"; };
 		6C63A97A2123677200098C7A /* AccelerateCorrelate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AccelerateCorrelate.h; sourceTree = "<group>"; };
 		6C63A97B2123677200098C7A /* AccelerateCorrelate.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = AccelerateCorrelate.c; sourceTree = "<group>"; };
+		6C63A9822124592B00098C7A /* LameRingBuffer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LameRingBuffer.h; sourceTree = "<group>"; };
+		6C63A9832124592B00098C7A /* LameRingBuffer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = LameRingBuffer.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +72,8 @@
 				6C63A966211DCEE700098C7A /* ViewController.m */,
 				6C63A97A2123677200098C7A /* AccelerateCorrelate.h */,
 				6C63A97B2123677200098C7A /* AccelerateCorrelate.c */,
+				6C63A9822124592B00098C7A /* LameRingBuffer.h */,
+				6C63A9832124592B00098C7A /* LameRingBuffer.c */,
 				6C63A9782122C9A500098C7A /* Click.wav */,
 				6C63A968211DCEE700098C7A /* Main.storyboard */,
 				6C63A96B211DCEE700098C7A /* Assets.xcassets */,
@@ -153,6 +158,7 @@
 			files = (
 				6C63A97C2123677200098C7A /* AccelerateCorrelate.c in Sources */,
 				6C63A967211DCEE700098C7A /* ViewController.m in Sources */,
+				6C63A9842124592B00098C7A /* LameRingBuffer.c in Sources */,
 				6C63A972211DCEE700098C7A /* main.m in Sources */,
 				6C63A964211DCEE700098C7A /* AppDelegate.m in Sources */,
 			);
