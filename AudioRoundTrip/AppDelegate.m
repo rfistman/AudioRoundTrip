@@ -21,9 +21,6 @@ static AudioUnit setupRemoteIOAudioUnit(void);
 
 const int kBufferSizeInSamples = 4096;
 
-const int kMatchSize = 1024;    // assert something about kBufferSizeInSamples
-const int kRingBufferCapacity = kBufferSizeInSamples + kMatchSize - 1;
-
 AudioUnit audioUnit;
 AudioStreamBasicDescription inputASBD;
 double audioSessionSampleRate;// =
@@ -40,6 +37,10 @@ int outputLengthFrames;
 AudioBufferList *outputABL;
 
 AVAudioPCMBuffer *inputMatchBuffer;
+int fileSizeInFrames;
+int npotBufferSize;
+float *fftedInput;
+float *ringBufferFFTEDScratchSpace;
 
 double maxCorrelation;
 uint64_t maxCorrelationSampleTime;
@@ -110,15 +111,22 @@ AccCorrelate correlator;
   
     int fileLength = inputMatchBuffer.frameLength;
     int lengthNPOT = 1 << (int)ceil(log2(2 * fileLength));  // NB: twice length of input
-    float *matchFFT = calloc(1, lengthNPOT * sizeof(float));
-    assert(matchFFT);
+    float *fftedSamples = calloc(1, lengthNPOT * sizeof(float));
+    assert(fftedSamples);
     correlator = NewAccCorr(lengthNPOT);
     // normalize the vector first
     float l2Length = cblas_snrm2(fileLength, inputMatchBufferSamples, 1);
     cblas_sscal(fileLength, 1.0/l2Length, inputMatchBufferSamples, 1);
 
-    ForwardFFT(&correlator, inputMatchBuffer.floatChannelData[0], matchFFT);
+    ForwardFFT(&correlator, inputMatchBuffer.floatChannelData[0], fftedSamples);    // vDSP real fwd scales by 2
+    fileSizeInFrames = fileLength;
+    npotBufferSize = lengthNPOT;
+    fftedInput = fftedSamples;
+    ringBufferFFTEDScratchSpace = calloc(1, lengthNPOT * sizeof(float));
+    assert(ringBufferFFTEDScratchSpace);
     
+    initLameRingBuffer(2*fileSizeInFrames + kBufferSizeInSamples - 1);
+
     audioUnit = setupRemoteIOAudioUnit();
 
     OSStatus err;
@@ -142,7 +150,6 @@ AccCorrelate correlator;
         ping[i] = sin(2 * M_PI * (4*440) * i / sampleRate);
     }
     
-    initLameRingBuffer(kRingBufferCapacity);
     
     outputLengthFrames = 1 * sampleRate;
     outputLengthFrames = (outputLengthFrames + kBufferSizeInSamples - 1)/kBufferSizeInSamples*kBufferSizeInSamples; // be divisible by buffer size
@@ -206,7 +213,10 @@ InputCallback(
     // Do all ring buffer stuff from here because I haven't done any synchronization
     ringBufferWrite(outputABL->mBuffers[0].mData, inNumberFrames);
 
-    while (ringBufferAvailableFrames() >= kMatchSize) {
+    while (ringBufferAvailableFrames() >= 2*fileSizeInFrames) {
+        ForwardFFT(&correlator, ringBufferGetReadPointer(), ringBufferFFTEDScratchSpace);   // factor of 2
+        Corrip(&correlator, fftedInput, ringBufferFFTEDScratchSpace, ringBufferFFTEDScratchSpace);
+        // TODO: look for it.
         /*
         float *normalizedA = inputMatchBufferSamples;
         float *b = ringBufferGetReadPointer();
@@ -229,7 +239,7 @@ InputCallback(
         //printf("avail %i\n", ringBufferAvailableFrames());
         //        ringBufferAdvanceReadPointer(kMatchSize);
          */
-        ringBufferAdvanceReadPointer(1);    // ouch!
+        ringBufferAdvanceReadPointer(fileSizeInFrames);    // ouch!
     }
     
     outputWritePosition += inNumberFrames;

@@ -51,13 +51,15 @@ ForwardFFT(AccCorrelate *f, float *src, float *dst) {
     FFT(f, src, &io);
 }
 
-// overwrite a, I guess. f for N
-static void
-Corrip(AccCorrelate *f, float* a, DSPSplitComplex *asplit, float* b, float* res) {
+// a & b in frequency domain (accelerate packed format)
+// overwrites b! hope that's ok. f for N
+// scales by N!
+void
+Corrip(AccCorrelate *f, float* a, float* b, float* res) {
     int halfN = f->N / 2;
     // I think that's how it's laid out
-    a[0] *= b[0];
-    a[halfN] *= b[halfN];
+    b[0] *= a[0];
+    b[halfN] *= a[halfN];
     // multiply remaining complex elts
     // a long winded way to do pointer arithmetic
     float *a_x = &a[1];
@@ -66,11 +68,12 @@ Corrip(AccCorrelate *f, float* a, DSPSplitComplex *asplit, float* b, float* res)
     float *b_y = &b[halfN+1];
     DSPSplitComplex A = { .realp = a_x, .imagp = a_y };
     DSPSplitComplex B = { .realp = b_x, .imagp = b_y };
-    vDSP_zvcmul(&A, 1, &B, 1, &A, 1, halfN-1);  // A <- A~*B
+    vDSP_zvcmul(&A, 1, &B, 1, &B, 1, halfN-1);  // B <- A~*B
     
-    IFFT(f, asplit, res);
+    DSPSplitComplex bsplit = { .realp = b, .imagp = b + halfN };
+    IFFT(f, &bsplit, res);
     // TODO? just figure out offset from even/odd values?
-    vDSP_ztoc(asplit, 1, (DSPComplex *)res, 2, halfN);
+    vDSP_ztoc(&bsplit, 1, (DSPComplex *)res, 2, halfN);
 }
 
 static void
@@ -85,9 +88,10 @@ AccCorrelateFN(float *ap, float *bp, float *res, int N) {
     float bw[N];
     DSPSplitComplex bws = { .realp = bw, .imagp = bw + N/2 };
     FFT(&f, bp, &bws);
-
+    
     // b*a(n) = a*b(-n) aka offset of a in b
-    Corrip(&f, aw, &aws, bw, res);
+    Corrip(&f, aw, bw, res);
+
     AccCorrDelete(&f);
 }
 
