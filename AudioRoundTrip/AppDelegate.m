@@ -36,7 +36,6 @@ int outputWritePosition;
 int outputLengthFrames;
 AudioBufferList *outputABL;
 
-AVAudioPCMBuffer *inputMatchBuffer;
 int fileSizeInFrames;
 int npotBufferSize;
 float *fftedInput;
@@ -108,20 +107,25 @@ AccCorrelate correlator;
 
     [self setupAudioSession];
     
-    inputMatchBuffer = [self loadClick];
-    float *inputMatchBufferSamples = inputMatchBuffer.floatChannelData[0];
+    AVAudioPCMBuffer *inputMatchBuffer = [self loadClick];
   
     int fileLength = inputMatchBuffer.frameLength;
+    
+    // Don't dirtily do in place operations on floatChannelData[0], things go bad.
+    float *inputMatchBufferSamples = malloc(fileLength * sizeof(float));
+    memcpy(inputMatchBufferSamples, inputMatchBuffer.floatChannelData[0], fileLength * sizeof(float));
+    
     int lengthNPOT = 1 << (int)ceil(log2(2 * fileLength));  // NB: twice length of input
     float *fftedSamples = calloc(1, lengthNPOT * sizeof(float));
     assert(fftedSamples);
     correlator = NewAccCorr(lengthNPOT);
     // normalize the vector first
     float l2Length = cblas_snrm2(fileLength, inputMatchBufferSamples, 1);
-    cblas_sscal(fileLength, 1.0/l2Length, inputMatchBufferSamples, 1);  // modifies AVAudioPCMBuffer, which is dirty
+    cblas_sscal(fileLength, 1.0/l2Length, inputMatchBufferSamples, 1);
     NSLog(@"click l2 length = %f", l2Length);
+    // NSLog(@"unitary check: %f", cblas_snrm2(fileLength, inputMatchBufferSamples, 1));
 
-    ForwardFFT(&correlator, inputMatchBufferSamples, fftedSamples);    // vDSP real fwd scales by 2
+    ForwardFFT(&correlator, inputMatchBufferSamples, fftedSamples);    // vDSP real fft fwd scales by 2
     fileSizeInFrames = fileLength;
     npotBufferSize = lengthNPOT;
     fftedInput = fftedSamples;
@@ -129,6 +133,7 @@ AccCorrelate correlator;
     assert(ringBufferFFTed);
     correlationResult = malloc(lengthNPOT*sizeof(float));
     assert(correlationResult);
+    free(inputMatchBufferSamples);
     
     initLameRingBuffer(2*fileSizeInFrames + kBufferSizeInSamples - 1);
 
@@ -225,7 +230,7 @@ InputCallback(
         
         float micDataLength = cblas_snrm2(fileSizeInFrames, ringBufferSamples, 1);
         double micDataLengthSquared = micDataLength*micDataLength;
-         printf("micDataLen: %f\n", micDataLength);
+        // printf("micDataLen: %f\n", micDataLength);
 
         float   maxAbsCosTheta = 0;
         int     max_i = -1;
@@ -233,13 +238,18 @@ InputCallback(
         // fileSizeInFrames valid dot products
         for (int i = 0; i < fileSizeInFrames; i++) {
             float dot = correlationResult[i];
-            printf("len %f, dot: %f\n", sqrt(micDataLengthSquared), dot);
-            float absCosTheta = fabs(dot/(sqrt(micDataLengthSquared)*4*npotBufferSize));
+            // printf("len %f, dot: %f\n", sqrt(micDataLengthSquared), dot);
             
+            float absCosTheta = fabs(dot/(sqrt(micDataLengthSquared)*4*npotBufferSize));
+
+            // something's wrong, some of these are bigger than 1
+            if (absCosTheta > 0.9) printf("ooh[%lli] = %f\n", ringBufferStartSampleTime()+i, absCosTheta);
+
             if (absCosTheta > maxAbsCosTheta) {
                 maxAbsCosTheta = absCosTheta;
                 max_i = i;
-                printf("max[%i] = %f\n", max_i, maxAbsCosTheta);
+//                if (maxAbsCosTheta > 0.1)
+//                    printf("max[%i] = %f\n", max_i, maxAbsCosTheta);
             }
             
             double x0 = ringBufferSamples[i];
@@ -248,7 +258,7 @@ InputCallback(
             micDataLengthSquared += xn*xn - x0*x0;
         }
         
-        ringBufferAdvanceReadPointer(fileSizeInFrames);    // ouch!
+        ringBufferAdvanceReadPointer(fileSizeInFrames); // or fileSizeInFrames + 1!
     }
     
     outputWritePosition += inNumberFrames;

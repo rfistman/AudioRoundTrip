@@ -187,7 +187,6 @@ ExampleCorrelate2() {
         float x0 = b[i];
         bSubLenSquared += xn*xn - x0*x0;
     }
-    
 
     AccCorrDelete(&f);
 }
