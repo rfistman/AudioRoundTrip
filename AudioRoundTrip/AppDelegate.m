@@ -37,7 +37,6 @@ int outputLengthFrames;
 AudioBufferList *outputABL;
 
 int fileSizeInFrames;
-int npotBufferSize;
 float *fftedInput;
 float *ringBufferFFTed;
 float *correlationResult;
@@ -104,6 +103,7 @@ AccCorrelate correlator;
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     ExampleCorrelate();
     ExampleCorrelate2();
+    ExampleCorrelate3();
 
     [self setupAudioSession];
     
@@ -127,7 +127,6 @@ AccCorrelate correlator;
 
     ForwardFFT(&correlator, inputMatchBufferSamples, fftedSamples);    // vDSP real fft fwd scales by 2
     fileSizeInFrames = fileLength;
-    npotBufferSize = lengthNPOT;
     fftedInput = fftedSamples;
     ringBufferFFTed = calloc(1, lengthNPOT * sizeof(float));
     assert(ringBufferFFTed);
@@ -135,7 +134,8 @@ AccCorrelate correlator;
     assert(correlationResult);
     free(inputMatchBufferSamples);
     
-    initLameRingBuffer(2*fileSizeInFrames + kBufferSizeInSamples - 1);
+//    initLameRingBuffer(lengthNPOT + kBufferSizeInSamples);
+    initLameRingBuffer(lengthNPOT + kBufferSizeInSamples);
 
     audioUnit = setupRemoteIOAudioUnit();
 
@@ -223,34 +223,27 @@ InputCallback(
     // Do all ring buffer stuff from here because I haven't done any synchronization
     ringBufferWrite(outputABL->mBuffers[0].mData, inNumberFrames);
 
-    while (ringBufferAvailableFrames() >= 2*fileSizeInFrames) {
+    // BUG: ring buffer sample time doesn't match inTimeStamp
+    
+    const int kNumValidDotProducts = (int)correlator.N-fileSizeInFrames+1;
+    
+    while (ringBufferAvailableFrames() >= correlator.N) {
         float *ringBufferSamples = ringBufferGetReadPointer();
         ForwardFFT(&correlator, ringBufferSamples, ringBufferFFTed);   // factor of 2
-        Corrip(&correlator, fftedInput, ringBufferFFTed, correlationResult);    // doesn't like reusing arg as result
+        Corrip(&correlator, fftedInput, ringBufferFFTed, correlationResult);    // doesn't like reusing arg as result, overwrites b
         
         float micDataLength = cblas_snrm2(fileSizeInFrames, ringBufferSamples, 1);
         double micDataLengthSquared = micDataLength*micDataLength;
         // printf("micDataLen: %f\n", micDataLength);
-
-        float   maxAbsCosTheta = 0;
-        int     max_i = -1;
         
-        // fileSizeInFrames valid dot products
-        for (int i = 0; i < fileSizeInFrames; i++) {
+        for (int i = 0; i < kNumValidDotProducts; i++) {
             float dot = correlationResult[i];
             // printf("len %f, dot: %f\n", sqrt(micDataLengthSquared), dot);
             
-            float absCosTheta = fabs(dot/(sqrt(micDataLengthSquared)*4*npotBufferSize));
+            float cosTheta = dot/(sqrt(micDataLengthSquared)*4*correlator.N);
 
             // something's wrong, some of these are bigger than 1
-            if (absCosTheta > 0.9) printf("ooh[%lli] = %f\n", ringBufferStartSampleTime()+i, absCosTheta);
-
-            if (absCosTheta > maxAbsCosTheta) {
-                maxAbsCosTheta = absCosTheta;
-                max_i = i;
-//                if (maxAbsCosTheta > 0.1)
-//                    printf("max[%i] = %f\n", max_i, maxAbsCosTheta);
-            }
+            if (fabs(cosTheta) > 0.7) printf("%lli: %f\n", ringBufferStartSampleTime()+i, cosTheta);
             
             double x0 = ringBufferSamples[i];
             double xn = ringBufferSamples[i + fileSizeInFrames];
@@ -258,7 +251,7 @@ InputCallback(
             micDataLengthSquared += xn*xn - x0*x0;
         }
         
-        ringBufferAdvanceReadPointer(fileSizeInFrames); // or fileSizeInFrames + 1!
+        ringBufferAdvanceReadPointer(kNumValidDotProducts);
     }
     
     outputWritePosition += inNumberFrames;

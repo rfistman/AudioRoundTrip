@@ -28,5 +28,6 @@ void Corrip(AccCorrelate *f, float* a, float* b, float* res);
 
 void ExampleCorrelate(void);
 void ExampleCorrelate2(void);
+void ExampleCorrelate3(void);
 
 #endif /* AccelerateCorrelate_h */

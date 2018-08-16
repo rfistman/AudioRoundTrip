@@ -191,3 +191,48 @@ ExampleCorrelate2() {
     AccCorrDelete(&f);
 }
 
+void
+ExampleCorrelate3() {
+    const int N_small = 3;
+    const int N = 8;
+    float a[N] = { 8, -45, 40, 0, 0, 0, 0, 0};
+    float b[N] = { 792, -7, 2, 4, -22.5, 20, 7, 1};
+    
+    float aUnit[N];
+    float aLen = cblas_snrm2(N_small, a, 1);
+    for (int i = 0; i < N; i++) aUnit[i] = a[i];    // copy and do in-place scale
+    cblas_sscal(N_small, 1.0/aLen, aUnit, 1);   // no out-of-place version?
+    
+    AccCorrelate f = NewAccCorr(N);
+    
+    float aFFTed[N];
+    ForwardFFT(&f, aUnit, aFFTed);  // scaled by 2
+    
+    float bFFTed[N];
+    ForwardFFT(&f, b, bFFTed);  // scaled by 2
+    
+    float  corrRes[N];
+    Corrip(&f, aFFTed, bFFTed, corrRes);
+    
+    const int N_to_check = N-N_small+1; // more than I was thinking!
+    float cosThetas[N_to_check];
+    for (int i = 0; i < N_to_check; i++) {
+        float bSubLen = cblas_snrm2(N_small, b+i, 1);
+        cosThetas[i] = corrRes[i]/(bSubLen*4*N);
+    }
+    
+    float bSub0Len = cblas_snrm2(N_small, b, 1);
+    float bSubLenSquared = bSub0Len * bSub0Len;
+    
+    float cosThetas2[N_to_check];
+    
+    for (int i = 0; i < N_to_check; i++) {
+        float bSubLen = sqrt(bSubLenSquared);
+        cosThetas2[i] = corrRes[i]/(bSubLen*4*N);
+        float xn = b[i+N_small];
+        float x0 = b[i];
+        bSubLenSquared += xn*xn - x0*x0;
+    }
+    
+    AccCorrDelete(&f);
+}
