@@ -162,7 +162,6 @@ ExampleCorrelate2() {
 
     float aFFTed[N];
     ForwardFFT(&f, aUnit, aFFTed);  // scaled by 2
-//    for (int i = 0; i < N; i++) aUnit[i] = a[i];
 
     float bFFTed[N];
     ForwardFFT(&f, b, bFFTed);  // scaled by 2
@@ -170,12 +169,26 @@ ExampleCorrelate2() {
     float  corrRes[N];
     Corrip(&f, aFFTed, bFFTed, corrRes);
     
-    float cosThetas[N_small+1]; // I think there are N_small + 1 valid positions!
+    float cosThetas[N_small+1]; // I think there are N_small + 1 valid positions! whoooooops!
     for (int i = 0; i <= N_small; i++) {
         float bSubLen = cblas_snrm2(N_small, b+i, 1);
         cosThetas[i] = corrRes[i]/(bSubLen*4*N);
     }
     
+    float bSub0Len = cblas_snrm2(N_small, b, 1);
+    float bSubLenSquared = bSub0Len * bSub0Len;
+
+    float cosThetas2[N_small+1];
+
+    for (int i = 0; i <= N_small; i++) {
+        float bSubLen = sqrt(bSubLenSquared);
+        cosThetas2[i] = corrRes[i]/(bSubLen*4*N);
+        float xn = b[i+N_small];
+        float x0 = b[i];
+        bSubLenSquared += xn*xn - x0*x0;
+    }
+    
+
     AccCorrDelete(&f);
 }
 
