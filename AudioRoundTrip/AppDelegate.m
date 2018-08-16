@@ -23,7 +23,6 @@ const int kBufferSizeInSamples = 4096;
 
 AudioUnit audioUnit;
 AudioStreamBasicDescription inputASBD;
-double audioSessionSampleRate;// =
 
 float *ping;
 int pingPlaybackPosition;
@@ -97,6 +96,34 @@ AccCorrelate correlator;
     AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:file.processingFormat frameCapacity:(AVAudioFrameCount)length];
     BOOL success = [file readIntoBuffer:buffer error:&error];
     assert(success);
+    
+    double desiredSampleRate = [AVAudioSession sharedInstance].sampleRate;
+    
+    if (desiredSampleRate != file.processingFormat.sampleRate) {
+        NSLog(@"Rate converting %f -> %f", file.processingFormat.sampleRate, desiredSampleRate);
+        AVAudioFormat *desiredFormat = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:desiredSampleRate channels:1];
+        AVAudioConverter *converter = [[AVAudioConverter alloc] initFromFormat:file.processingFormat toFormat:desiredFormat];
+
+        AVAudioFrameCount resampledLength = file.length*desiredSampleRate/file.processingFormat.sampleRate;
+        AVAudioPCMBuffer *resampledBuffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:desiredFormat frameCapacity:resampledLength];
+
+        __block BOOL haveVendedBuffer = NO;
+        
+        [converter convertToBuffer:resampledBuffer error:&error withInputFromBlock:^AVAudioBuffer*(AVAudioPacketCount inNumberOfPackets, AVAudioConverterInputStatus * outStatus) {
+            if (haveVendedBuffer) {
+                *outStatus = AVAudioConverterInputStatus_EndOfStream;
+                return nil;
+            } else {
+                haveVendedBuffer = YES;
+                *outStatus = AVAudioConverterInputStatus_HaveData;
+                return buffer;
+            }
+        }];
+
+        return resampledBuffer;
+    }
+    
+    
     return buffer;
 }
 
@@ -149,8 +176,6 @@ AccCorrelate correlator;
     AVAudioSession *session = [AVAudioSession sharedInstance];
 
     double sampleRate = session.sampleRate;
-
-    audioSessionSampleRate = sampleRate;
     
     // create ping
     pingLengthFrames = 0.04 * sampleRate;
@@ -241,9 +266,10 @@ InputCallback(
             // printf("len %f, dot: %f\n", sqrt(micDataLengthSquared), dot);
             
             float cosTheta = dot/(sqrt(micDataLengthSquared)*4*correlator.N);
+//            float cosTheta = dot/(cblas_snrm2(fileSizeInFrames, ringBufferSamples+i, 1)*4*correlator.N);
 
-            // something's wrong, some of these are bigger than 1
-            if (fabs(cosTheta) > 0.7) printf("%lli: %f\n", ringBufferStartSampleTime()+i, cosTheta);
+            // something's wrong, sometimes these are much bigger than 1
+            if (fabs(cosTheta) > 0.85) printf("%lli\t%f\n", ringBufferStartSampleTime()+i, cosTheta);
             
             double x0 = ringBufferSamples[i];
             double xn = ringBufferSamples[i + fileSizeInFrames];
