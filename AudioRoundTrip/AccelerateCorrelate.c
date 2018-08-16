@@ -141,5 +141,41 @@ ExampleCorrelate() {
     }
     if (!match) printf("BAD!");
     printf("\n");
+    
+    float l2norm[2] = { 3, 4 };
+    printf("cblas_snrm2(3, 4): %f\n", cblas_snrm2(2, l2norm, 1));   // should be 5
+}
+
+void
+ExampleCorrelate2() {
+    const int N_small = 4;
+    const int N = 8;
+    float a[N] = { 1, 9, 7, 7, 0, 0, 0, 0};
+    float b[N] = { 2, -2, 2, 1, 9, 7, 7, 1};
+
+    float aUnit[N];
+    float aLen = cblas_snrm2(N_small, a, 1);
+    for (int i = 0; i < N; i++) aUnit[i] = a[i];    // copy and do in-place scale
+    cblas_sscal(N_small, 1.0/aLen, aUnit, 1);   // no out-of-place version?
+
+    AccCorrelate f = NewAccCorr(N);
+
+    float aFFTed[N];
+    ForwardFFT(&f, aUnit, aFFTed);  // scaled by 2
+//    for (int i = 0; i < N; i++) aUnit[i] = a[i];
+
+    float bFFTed[N];
+    ForwardFFT(&f, b, bFFTed);  // scaled by 2
+
+    float  corrRes[N];
+    Corrip(&f, aFFTed, bFFTed, corrRes);
+    
+    float cosThetas[N_small+1]; // I think there are N_small + 1 valid positions!
+    for (int i = 0; i <= N_small; i++) {
+        float bSubLen = cblas_snrm2(N_small, b+i, 1);
+        cosThetas[i] = corrRes[i]/(bSubLen*4*N);
+    }
+    
+    AccCorrDelete(&f);
 }
 

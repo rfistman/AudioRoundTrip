@@ -40,7 +40,8 @@ AVAudioPCMBuffer *inputMatchBuffer;
 int fileSizeInFrames;
 int npotBufferSize;
 float *fftedInput;
-float *ringBufferFFTEDScratchSpace;
+float *ringBufferFFTed;
+float *correlationResult;
 
 double maxCorrelation;
 uint64_t maxCorrelationSampleTime;
@@ -103,7 +104,8 @@ AccCorrelate correlator;
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     ExampleCorrelate();
-    
+    ExampleCorrelate2();
+
     [self setupAudioSession];
     
     inputMatchBuffer = [self loadClick];
@@ -116,14 +118,17 @@ AccCorrelate correlator;
     correlator = NewAccCorr(lengthNPOT);
     // normalize the vector first
     float l2Length = cblas_snrm2(fileLength, inputMatchBufferSamples, 1);
-    cblas_sscal(fileLength, 1.0/l2Length, inputMatchBufferSamples, 1);
+    cblas_sscal(fileLength, 1.0/l2Length, inputMatchBufferSamples, 1);  // modifies AVAudioPCMBuffer, which is dirty
+    NSLog(@"click l2 length = %f", l2Length);
 
-    ForwardFFT(&correlator, inputMatchBuffer.floatChannelData[0], fftedSamples);    // vDSP real fwd scales by 2
+    ForwardFFT(&correlator, inputMatchBufferSamples, fftedSamples);    // vDSP real fwd scales by 2
     fileSizeInFrames = fileLength;
     npotBufferSize = lengthNPOT;
     fftedInput = fftedSamples;
-    ringBufferFFTEDScratchSpace = calloc(1, lengthNPOT * sizeof(float));
-    assert(ringBufferFFTEDScratchSpace);
+    ringBufferFFTed = calloc(1, lengthNPOT * sizeof(float));
+    assert(ringBufferFFTed);
+    correlationResult = malloc(lengthNPOT*sizeof(float));
+    assert(correlationResult);
     
     initLameRingBuffer(2*fileSizeInFrames + kBufferSizeInSamples - 1);
 
@@ -214,31 +219,35 @@ InputCallback(
     ringBufferWrite(outputABL->mBuffers[0].mData, inNumberFrames);
 
     while (ringBufferAvailableFrames() >= 2*fileSizeInFrames) {
-        ForwardFFT(&correlator, ringBufferGetReadPointer(), ringBufferFFTEDScratchSpace);   // factor of 2
-        Corrip(&correlator, fftedInput, ringBufferFFTEDScratchSpace, ringBufferFFTEDScratchSpace);
-        // TODO: look for it.
-        /*
-        float *normalizedA = inputMatchBufferSamples;
-        float *b = ringBufferGetReadPointer();
-        double  s = 0;
-        double bSum = 0;
+        float *ringBufferSamples = ringBufferGetReadPointer();
+        ForwardFFT(&correlator, ringBufferSamples, ringBufferFFTed);   // factor of 2
+        Corrip(&correlator, fftedInput, ringBufferFFTed, correlationResult);    // doesn't like reusing arg as result
         
-        for (int i = 0; i < kMatchSize; i++) {
-            double x = *b++;
-            bSum += x*x;
-            s += *normalizedA++ * x;
-        }
-        s = fabs(s)/sqrt(bSum);
-    //    s = fabs(s)/(inputLength*sqrt(bSum));
+        float micDataLength = cblas_snrm2(fileSizeInFrames, ringBufferSamples, 1);
+        double micDataLengthSquared = micDataLength*micDataLength;
+         printf("micDataLen: %f\n", micDataLength);
+
+        float   maxAbsCosTheta = 0;
+        int     max_i = -1;
         
-        if (s > 0.5) {
-            maxCorrelation = s;
-            maxCorrelationSampleTime = ringBufferStartSampleTime();
-            NSLog(@"[%lli]: %lf\n", maxCorrelationSampleTime, s);
+        // fileSizeInFrames valid dot products
+        for (int i = 0; i < fileSizeInFrames; i++) {
+            float dot = correlationResult[i];
+            printf("len %f, dot: %f\n", sqrt(micDataLengthSquared), dot);
+            float absCosTheta = fabs(dot/(sqrt(micDataLengthSquared)*4*npotBufferSize));
+            
+            if (absCosTheta > maxAbsCosTheta) {
+                maxAbsCosTheta = absCosTheta;
+                max_i = i;
+                printf("max[%i] = %f\n", max_i, maxAbsCosTheta);
+            }
+            
+            double x0 = ringBufferSamples[i];
+            double xn = ringBufferSamples[i + fileSizeInFrames];
+            
+            micDataLengthSquared += xn*xn - x0*x0;
         }
-        //printf("avail %i\n", ringBufferAvailableFrames());
-        //        ringBufferAdvanceReadPointer(kMatchSize);
-         */
+        
         ringBufferAdvanceReadPointer(fileSizeInFrames);    // ouch!
     }
     

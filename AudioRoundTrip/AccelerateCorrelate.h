@@ -27,5 +27,6 @@ void ForwardFFT(AccCorrelate *f, float *src, float *dst);
 void Corrip(AccCorrelate *f, float* a, float* b, float* res);
 
 void ExampleCorrelate(void);
+void ExampleCorrelate2(void);
 
 #endif /* AccelerateCorrelate_h */
