@@ -45,6 +45,8 @@ uint64_t maxCorrelationSampleTime;
 
 AccCorrelate correlator;
 
+UInt64 hostTimeZero = 0;
+
 @implementation AppDelegate
 
 - (void)setupAudioSession {
@@ -237,7 +239,7 @@ InputCallback(
     AudioBuffer leftBuffer = {0};
     AudioBuffer rightBuffer = {0};
 #endif
-
+    
     outputABL->mNumberBuffers = 2;
     outputABL->mBuffers[0] = leftBuffer;
     outputABL->mBuffers[1] = rightBuffer;
@@ -269,7 +271,14 @@ InputCallback(
             float cosTheta = dot/(sqrt(micDataLengthSquared)*4*correlator.N);
 //            float cosTheta = dot/(cblas_snrm2(fileSizeInFrames, ringBufferSamples+i, 1)*4*correlator.N);
 
-            if (fabs(cosTheta) > 0.85) printf("%lli\t%f\n", ringBufferStartSampleTime()+i, cosTheta);
+            if (fabs(cosTheta) > 0.75) {
+                printf("%lli\t%f\n", ringBufferStartSampleTime()+i, cosTheta);
+                if (hostTimeZero == 0) {
+                    // TODO: add in offset from sampletime HAAAARD
+                    hostTimeZero = inTimeStamp->mHostTime;
+                    printf("Setting hostTimeZero to %lli\n", hostTimeZero);
+                }
+            }
             
             double x0 = ringBufferSamples[i];
             double xn = ringBufferSamples[i + fileSizeInFrames];
