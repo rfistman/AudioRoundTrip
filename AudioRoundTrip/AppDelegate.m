@@ -135,17 +135,17 @@ AccCorrelate correlator;
     [self setupAudioSession];
     
     AVAudioPCMBuffer *inputMatchBuffer = [self loadClick];
-  
     int fileLength = inputMatchBuffer.frameLength;
     
-    // Don't dirtily do in place operations on floatChannelData[0], things go bad.
-    float *inputMatchBufferSamples = malloc(fileLength * sizeof(float));
-    memcpy(inputMatchBufferSamples, inputMatchBuffer.floatChannelData[0], fileLength * sizeof(float));
-    
     int lengthNPOT = 1 << (int)ceil(log2(2 * fileLength));  // NB: twice length of input
-    float *fftedSamples = calloc(1, lengthNPOT * sizeof(float));
+    float *fftedSamples = malloc(lengthNPOT * sizeof(float));
     assert(fftedSamples);
     correlator = NewAccCorr(lengthNPOT);
+
+    // Don't dirtily do in place operations on floatChannelData[0], things go bad.
+    float *inputMatchBufferSamples = calloc(1, lengthNPOT * sizeof(float));
+    memcpy(inputMatchBufferSamples, inputMatchBuffer.floatChannelData[0], fileLength * sizeof(float));
+
     // normalize the vector first
     float l2Length = cblas_snrm2(fileLength, inputMatchBufferSamples, 1);
     cblas_sscal(fileLength, 1.0/l2Length, inputMatchBufferSamples, 1);
@@ -264,11 +264,11 @@ InputCallback(
         for (int i = 0; i < kNumValidDotProducts; i++) {
             float dot = correlationResult[i];
             // printf("len %f, dot: %f\n", sqrt(micDataLengthSquared), dot);
-            
+    
+            // 10%->1% on 5s. this strength reduction is a pretty good optimisation!
             float cosTheta = dot/(sqrt(micDataLengthSquared)*4*correlator.N);
 //            float cosTheta = dot/(cblas_snrm2(fileSizeInFrames, ringBufferSamples+i, 1)*4*correlator.N);
 
-            // something's wrong, sometimes these are much bigger than 1
             if (fabs(cosTheta) > 0.85) printf("%lli\t%f\n", ringBufferStartSampleTime()+i, cosTheta);
             
             double x0 = ringBufferSamples[i];
