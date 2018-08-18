@@ -40,8 +40,9 @@ float *fftedInput;
 float *ringBufferFFTed;
 float *correlationResult;
 
-double maxCorrelation;
-uint64_t maxCorrelationSampleTime;
+uint64_t inputAUStartHostTime;
+double sampleRate;
+
 
 AccCorrelate correlator;
 
@@ -163,7 +164,6 @@ UInt64 hostTimeZero = 0;
     assert(correlationResult);
     free(inputMatchBufferSamples);
     
-//    initLameRingBuffer(lengthNPOT + kBufferSizeInSamples);
     initLameRingBuffer(lengthNPOT + kBufferSizeInSamples);
 
     audioUnit = setupRemoteIOAudioUnit();
@@ -177,7 +177,7 @@ UInt64 hostTimeZero = 0;
 
     AVAudioSession *session = [AVAudioSession sharedInstance];
 
-    double sampleRate = session.sampleRate;
+    sampleRate = session.sampleRate;
     
     // create ping
     pingLengthFrames = 0.04 * sampleRate;
@@ -247,10 +247,16 @@ InputCallback(
     OSStatus err = AudioUnitRender(audioUnit, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, outputABL);
     assert(noErr == err);   // maybe you're running this on the simulator
 
+    if (0 == inputAUStartHostTime) {
+        assert(inTimeStamp->mFlags & kAudioTimeStampHostTimeValid);
+        inputAUStartHostTime = inTimeStamp->mHostTime;
+        printf("Set in au starthosttime: %lli\n", inputAUStartHostTime);
+    }
+    
     // Do all ring buffer stuff from here because I haven't done any synchronization
     ringBufferWrite(outputABL->mBuffers[0].mData, inNumberFrames);
 
-    // BUG: ring buffer sample time doesn't match inTimeStamp
+    // BUG: ring buffer sample time doesn't match inTimeStamp. nah. but I noted start hosttime.
     
     const int kNumValidDotProducts = (int)correlator.N-fileSizeInFrames+1;
     
@@ -272,10 +278,12 @@ InputCallback(
 //            float cosTheta = dot/(cblas_snrm2(fileSizeInFrames, ringBufferSamples+i, 1)*4*correlator.N);
 
             if (fabs(cosTheta) > 0.75) {
-                printf("%lli\t%f\n", ringBufferStartSampleTime()+i, cosTheta);
+                uint64_t matchSampleTime = ringBufferStartSampleTime()+i;
+                printf("%lli\t%f\n", matchSampleTime, cosTheta);
                 if (hostTimeZero == 0) {
-                    // TODO: add in offset from sampletime HAAAARD
-                    hostTimeZero = inTimeStamp->mHostTime;
+                    uint64_t hosttimeOffsetToMatch = matchSampleTime/sampleRate*1e9*3/125;  // rounding up?
+                    hostTimeZero = inputAUStartHostTime + hosttimeOffsetToMatch;
+
                     printf("Setting hostTimeZero to %lli\n", hostTimeZero);
                 }
             }
