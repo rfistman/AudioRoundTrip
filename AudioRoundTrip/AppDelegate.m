@@ -12,12 +12,15 @@
 #include <mach/mach.h>
 #import "AccelerateCorrelate.h"
 #import "LameRingBuffer.h"
+#import "impulse.h"
 
 @interface AppDelegate ()
 
 @end
 
 static AudioUnit setupRemoteIOAudioUnit(void);
+
+extern const uint64_t kBeatDurationHostTime;
 
 const int kBufferSizeInSamples = 4096;
 
@@ -47,6 +50,7 @@ double sampleRate;
 AccCorrelate correlator;
 
 UInt64 hostTimeZero = 0;
+UInt64 playbackStartHostTime = 0;
 
 @implementation AppDelegate
 
@@ -180,13 +184,11 @@ UInt64 hostTimeZero = 0;
     sampleRate = session.sampleRate;
     
     // create ping
-    pingLengthFrames = 0.04 * sampleRate;
+    pingLengthFrames = num_samples_for_sample_rate(sampleRate);
     ping = malloc(sizeof(float) * pingLengthFrames);
-    
-    for (int i = 0; i < pingLengthFrames; i++) {
-        ping[i] = sin(2 * M_PI * (4*440) * i / sampleRate);
-    }
-    
+    assert(ping);
+
+    create_impulses(sampleRate, ping);
     
     outputLengthFrames = 1 * sampleRate;
     outputLengthFrames = (outputLengthFrames + kBufferSizeInSamples - 1)/kBufferSizeInSamples*kBufferSizeInSamples; // be divisible by buffer size
@@ -285,6 +287,8 @@ InputCallback(
                     hostTimeZero = inputAUStartHostTime + hosttimeOffsetToMatch;
 
                     printf("Setting hostTimeZero to %lli\n", hostTimeZero);
+                    playbackStartHostTime = hostTimeZero + 4*kBeatDurationHostTime;
+                    printf("Setting playbackStartHostTime to %lli\n", playbackStartHostTime);
                 }
             }
             
@@ -311,13 +315,26 @@ RenderCallback(
    UInt32                      inNumberFrames,
    AudioBufferList*            ioData)
 {
-    *ioActionFlags = kAudioUnitRenderAction_OutputIsSilence;
-    return noErr;
+    uint64_t    bufferEndHostTime = inTimeStamp->mHostTime + (inNumberFrames/sampleRate*1e9*3/125);
+    int availFrames = pingLengthFrames - pingPlaybackPosition;
+
+    if (0 == availFrames) {
+        *ioActionFlags = kAudioUnitRenderAction_OutputIsSilence;
+        return noErr;
+    }
+    
+    if (0 == pingPlaybackPosition && !(inTimeStamp->mHostTime <= playbackStartHostTime && playbackStartHostTime < bufferEndHostTime)) {
+        *ioActionFlags = kAudioUnitRenderAction_OutputIsSilence;
+        return noErr;
+    }
+
+    if (0 == pingPlaybackPosition) {
+        // TODO: calculate position in first buffer
+    }
 
     // uint64_t nowHostTime = mach_absolute_time();
     // NB: assumption that timestamp hosttime > now hosttime
     // printf("output hostTS: %lli, sampleTS: %lf, mach: %lli, %lf\n", inTimeStamp->mHostTime, inTimeStamp->mSampleTime, nowHostTime, -audioSessionSampleRate * (inTimeStamp->mHostTime-nowHostTime)*125/3/1e9);
-    int availFrames = pingLengthFrames - pingPlaybackPosition;
     int framesToCopy = MIN(availFrames, inNumberFrames);
 
     // assuming interleaved here

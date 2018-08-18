@@ -16,6 +16,7 @@
 		6C63A9792122C9A500098C7A /* Click.wav in Resources */ = {isa = PBXBuildFile; fileRef = 6C63A9782122C9A500098C7A /* Click.wav */; };
 		6C63A97C2123677200098C7A /* AccelerateCorrelate.c in Sources */ = {isa = PBXBuildFile; fileRef = 6C63A97B2123677200098C7A /* AccelerateCorrelate.c */; };
 		6C63A9842124592B00098C7A /* LameRingBuffer.c in Sources */ = {isa = PBXBuildFile; fileRef = 6C63A9832124592B00098C7A /* LameRingBuffer.c */; };
+		6CE6578D2127F387005C2322 /* impulse.c in Sources */ = {isa = PBXBuildFile; fileRef = 6CE6578C2127F386005C2322 /* impulse.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,8 @@
 		6C63A97B2123677200098C7A /* AccelerateCorrelate.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = AccelerateCorrelate.c; sourceTree = "<group>"; };
 		6C63A9822124592B00098C7A /* LameRingBuffer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LameRingBuffer.h; sourceTree = "<group>"; };
 		6C63A9832124592B00098C7A /* LameRingBuffer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = LameRingBuffer.c; sourceTree = "<group>"; };
+		6CE6578B2127F386005C2322 /* impulse.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = impulse.h; sourceTree = "<group>"; };
+		6CE6578C2127F386005C2322 /* impulse.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = impulse.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +77,8 @@
 				6C63A97B2123677200098C7A /* AccelerateCorrelate.c */,
 				6C63A9822124592B00098C7A /* LameRingBuffer.h */,
 				6C63A9832124592B00098C7A /* LameRingBuffer.c */,
+				6CE6578B2127F386005C2322 /* impulse.h */,
+				6CE6578C2127F386005C2322 /* impulse.c */,
 				6C63A9782122C9A500098C7A /* Click.wav */,
 				6C63A968211DCEE700098C7A /* Main.storyboard */,
 				6C63A96B211DCEE700098C7A /* Assets.xcassets */,
@@ -161,6 +166,7 @@
 				6C63A9842124592B00098C7A /* LameRingBuffer.c in Sources */,
 				6C63A972211DCEE700098C7A /* main.m in Sources */,
 				6C63A964211DCEE700098C7A /* AppDelegate.m in Sources */,
+				6CE6578D2127F387005C2322 /* impulse.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

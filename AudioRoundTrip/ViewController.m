@@ -32,6 +32,7 @@ static int currentBeat = -1;
 }
 
 - (void)pollFlashFlag {
+    // TODO: less burn, only update on state change.
     if (hostTimeZero == 0) return;
     
     uint64_t h = mach_absolute_time()-hostTimeZero;
