@@ -287,7 +287,10 @@ InputCallback(
                     hostTimeZero = inputAUStartHostTime + hosttimeOffsetToMatch;
 
                     printf("Setting hostTimeZero to %lli\n", hostTimeZero);
-                    playbackStartHostTime = hostTimeZero + 4*kBeatDurationHostTime;
+                    
+                    uint64_t fudgeLagHostTime = 800.0/44100*1e9*3/125;  // our output seems to be 800ish samples late at 44.1kHz?
+                    
+                    playbackStartHostTime = hostTimeZero + 4*kBeatDurationHostTime - fudgeLagHostTime;
                     printf("Setting playbackStartHostTime to %lli\n", playbackStartHostTime);
                 }
             }
@@ -328,8 +331,15 @@ RenderCallback(
         return noErr;
     }
 
+    int framesToPreTrim = 0;
+    
     if (0 == pingPlaybackPosition) {
         // TODO: calculate position in first buffer
+        uint64_t    hostTimeOffset = playbackStartHostTime - inTimeStamp->mHostTime;
+        framesToPreTrim = hostTimeOffset * 125 / 3 / 1e9 * sampleRate;  // TODO: round up? probably should.
+
+        printf("pre-trimming %i frames\n", framesToPreTrim);
+        inNumberFrames -= framesToPreTrim;
     }
 
     // uint64_t nowHostTime = mach_absolute_time();
@@ -340,8 +350,8 @@ RenderCallback(
     // assuming interleaved here
     for (int i = 0; i < ioData->mNumberBuffers; i++) {
         AudioBuffer *buffer = &ioData->mBuffers[i];
-        bzero(buffer->mData, buffer->mDataByteSize);    // lazy zeroing of leftover frames.
-        memcpy(buffer->mData, &ping[pingPlaybackPosition], sizeof(ping[0]) * framesToCopy);
+        bzero(buffer->mData, buffer->mDataByteSize);    // zero everything, handles trailing and leading trimming
+        memcpy(buffer->mData + framesToPreTrim*sizeof(float), &ping[pingPlaybackPosition], sizeof(ping[0]) * framesToCopy);
     }
     
     pingPlaybackPosition += framesToCopy;
