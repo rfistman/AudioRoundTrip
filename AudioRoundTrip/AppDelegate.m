@@ -292,6 +292,8 @@ InputCallback(
                     
                     playbackStartHostTime = hostTimeZero + 4*kBeatDurationHostTime - fudgeLagHostTime;
                     printf("Setting playbackStartHostTime to %lli\n", playbackStartHostTime);
+                    
+                    pingPlaybackPosition = 0;   // for reset. racy?
                 }
             }
             

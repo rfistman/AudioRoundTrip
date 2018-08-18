@@ -14,6 +14,7 @@ const uint64_t kBeatDurationHostTime = 500000000*3/125;  // bleah. half a second
 const uint64_t kFlashDurationHostTime = 200000000*3/125;    // 200ms
 static int currentBeat = -1;
 
+
 @interface ViewController ()
 @property (weak, nonatomic) IBOutlet UIView *flashingView;
 
@@ -57,6 +58,11 @@ static int currentBeat = -1;
     } else {
         self.flashingView.backgroundColor = UIColor.whiteColor;
     }
+}
+
+- (IBAction)reset:(id)sender {
+    hostTimeZero = 0;   // probably racy
+    self.flashingView.backgroundColor = UIColor.whiteColor;
 }
 
 @end
